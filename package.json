@@ -1,0 +1,21 @@
+{
+  "name": "feeva.masters",
+  "version": "0.1.0",
+  "description": "Map of Korean skill masters based on SBS TV program",
+  "scripts": {
+    "scrape": "node scrape -d data\\content.txt",
+    "geocode": "node geocode -d -o data\\locations.json data\\content.txt",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "scraping",
+    "map"
+  ],
+  "author": "feeva",
+  "license": "ISC",
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.2",
+    "commander": "^2.11.0",
+    "request": "^2.81.0"
+  }
+}

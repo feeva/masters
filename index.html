@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>달인의 추억</title>
+
+    <meta name="description" content="방송에 나온 달인의 위치를 지도에서 확인"/>
+    <link rel="canonical" href="http://start.goodtime.co.kr/programs/masters/index.html" />
+    <meta property="og:locale" content="ko_KR" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="달인의 추억 - Nothing New Under the Sun" />
+    <meta property="og:description" content="방송에 나온 달인의 위치를 지도에서 확인" />
+    <meta property="og:url" content="http://start.goodtime.co.kr/programs/masters/index.html" />
+    <meta property="og:site_name" content="Nothing New Under the Sun" />
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.1.0/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.0.6/dist/MarkerCluster.Default.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.0.6/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/3.5.2/animate.min.css"
+        integrity="sha384-OHBBOqpYHNsIqQy8hL1U+8OXf9hH6QRxi0+EODezv82DfnZoV7qoHAZDwMwEJvSw"
+        crossorigin="anonymous">
+
+    <style>
+* { font-family: 'segoe ui', '맑은 고딕', sans-serif; }
+html, body { height: 100%; background: none; margin: 0; overflow: hidden; }
+
+#divMap { width: 100%; height: 100%; }
+.leaflet-popup-content { white-space: pre-line;  font-size: 1.2em; }
+.content-highlight { font-weight: bold; background-color: yellow; }
+#divInfo {
+    position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+    width: 400px; max-width: 95%; height: 220px;
+    margin: auto; padding: 1em; box-sizing: border-box;
+    background-color: white; border: solid 1px #ccc; border-radius: 5px;
+    box-shadow: #555 5px 5px 20px; z-index: 999;
+}
+#divInfo h1 {
+    margin: 0;
+    color: #f35626; font-weight: 100; font-size: 3.6em;
+    background-image: -webkit-linear-gradient(92deg,#f35626,#feab3a);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: hue 12s infinite linear;
+}
+@keyframes hue {
+  from {
+    filter: hue-rotate(0deg);
+  }
+
+  to {
+    filter: hue-rotate(-360deg);
+  }
+}
+#divInfo .finePrint { font-size: 8pt; color: #aaa; }
+#divInfoTouch { position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 999; background-color: white; opacity: 0; }
+    </style>
+</head>
+
+<body>
+
+    <div id="divMap"></div>
+
+    <div id="divInfoTouch"></div>
+    <div id="divInfo">
+        <div class="animated swing"><h1>달인의 추억</h1></div>
+        <div class="desc">
+            <p>전국 생활의 달인 지도로 찾기 (<span id="spanUpdated"></span>)</p>
+        </div>
+        <div class="finePrint">
+            <p>이 페이지는 SBS 생활의 달인 방송을 시청하는
+                시청자로서 제작한 웹페이지이며 사용된 데이터는
+                각각의 원 소유주에게 원래의 권한이 있습니다.</p>
+            <p style="text-align: center;">(c) 2017, <a href="http://start.goodtime.co.kr/" target="_blank">이동련</a></p>
+        </div>
+    </div>
+
+    <script src='https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.0/jquery.min.js'></script>
+    <script src="https://unpkg.com/leaflet@1.1.0/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.0.6/dist/leaflet.markercluster.js"></script>
+
+    <script>
+jQuery(function($) {
+    'use strict';
+
+    var TILE_URLS = {
+        BASE: 'http://xdworld.vworld.kr:8080/2d/Base/201812/{z}/{x}/{y}.png',
+        LABELS: 'http://xdworld.vworld.kr:8080/2d/Hybrid/201812/{z}/{x}/{y}.png'
+    };
+    var VWORLD_ATTRIBUTION = '&copy; <a href="http://www.vworld.kr/po_main.do" target="_blank">공간정보 오픈플랫폼</a>'
+                        + ' | <a href="http://www.molit.go.kr/" target="_blank">국토교통부</a>';
+
+    var StatMap = function(settings) {
+        settings = this.settings = $.extend(true, {
+            maxZoom: 18,
+            minZoom: 7
+        }, settings);
+
+        this.map = L.map(settings.containerId, {
+                maxZoom: settings.maxZoom,
+                minZoom: settings.minZoom,
+                maxBounds: settings.maxBounds,
+                maxBoundsViscosity: .8,
+                zoomControl: false,
+                zoomSnap: 1
+            });
+        if (settings.bounds)
+            this.map.fitBounds(settings.bounds);
+        else
+            this.map.setView(settings.center, settings.zoom);
+
+        if (settings.zoomControl) {
+            L.control.zoom({
+                position: settings.zoomControl
+            }).addTo(this.map);
+        }
+
+        if (settings.tile) {
+            this.setTileLayer({
+                url: settings.tile.url,
+                opacity: settings.tile.opacity || 1,
+                attribution: settings.tile.attribution
+            });
+        }
+
+        this.boundaries = {};
+    }
+
+    /**
+     * set a tile layer. only one tile layer is allowed.
+     * @settings
+     *      url
+     *      opacity
+     *      attribution
+     */
+    StatMap.prototype.setTileLayer = function(settings) {
+        if (this.tileLayer)
+            return;
+
+        this.tileLayer = L.tileLayer(settings.url, {
+            opacity: settings.opacity || 1,
+            attribution: settings.attribution
+        }).addTo(this.map);
+    };
+
+    StatMap.prototype.unsetTileLayer = function() {
+        if (this.tileLayer) {
+            this.tileLayer.remove();
+            this.tileLayer = null;
+        }
+    }
+
+    var myMap = new StatMap({
+        containerId: 'divMap',
+        bounds: [[32.5, 125], [39, 130.5]],
+        maxBounds: [[31, 122], [40, 134]],
+        // zoomControl: 'bottomright',
+        tile: {
+            url: TILE_URLS.BASE,
+            opacity: 1,
+            attribution: VWORLD_ATTRIBUTION
+        },
+    });
+
+    var contentSeparator = '-----';
+    var textContent;
+    var time = new Date().getTime() / 1000 / 60 / 60 / 24; // 캐시가 하루에 한번은 초기화되도록
+
+    $.get('./data/locations.json?t=' + time, function(result, status, jqXhr) {
+        var markers = L.markerClusterGroup();
+
+        function contentFunc(marker) {
+            if (!textContent)
+                return;
+
+            var textIndex = marker.textIndex;
+            var blockStart = textContent.lastIndexOf(contentSeparator, textIndex);
+            if (blockStart < 0)
+                blockStart = 0;
+            else
+                blockStart += contentSeparator.length;
+            var blockEnd = textContent.indexOf(contentSeparator, textIndex);
+            var lineStart = textContent.lastIndexOf('\n', textIndex);
+            if (lineStart < 0)
+                lineStart = 0;
+            else
+                lineStart += 1;
+            var lineEnd = textContent.slice(textIndex).search(/\r?\n/);
+            if (lineEnd < 0)
+                lineEnd = blockEnd;
+            else
+                lineEnd += textIndex;
+
+            var content = textContent.slice(blockStart, lineStart).replace(/</g, '&lt;')
+                        + '<span class="content-highlight">' + textContent.slice(lineStart, lineEnd).replace(/</g, '&lt;')
+                        + '</span>' + textContent.slice(lineEnd, blockEnd).replace(/</g, '&lt;');
+            return content;
+        }
+
+        var popup = L.popup({
+            maxWidth: 310,
+            maxHeight: 250
+        })
+        .setContent(contentFunc);
+        
+        function scrollIntoView(o) {
+            var el = document.querySelector('.content-highlight');
+            el.scrollIntoView(false);
+            el.parentNode.scrollTop += 120;
+        }
+
+        var updated = new Date(result.updated);
+        var mm = updated.getMonth() + 1;
+        var dd = updated.getDate();
+        $('#spanUpdated').text(updated.getFullYear() + '-' + (mm < 10 ? '0' : '') + mm + '-' + (dd < 10 ? '0' : '') + dd);
+
+        var list = result.list;
+
+        for (var i = 0; i < list.length; ++i) {
+            var loc = list[i], latLng = [loc.lat, loc.lng];
+            var marker = L.marker(latLng, { title: loc.address });
+            marker.textIndex = loc.index;
+            marker.bindPopup(popup).on('popupopen', scrollIntoView);
+            markers.addLayer(marker);
+        }
+        myMap.map.addLayer(markers);
+    }, 'json');
+
+    $.get('./data/content.txt?t=' + time, function(text, status, jqHxr) {
+        textContent = text;
+    });
+
+    $('#divInfoTouch, #divInfo').on('mousedown touchdown', function() {
+        $('#divInfo, #divInfoTouch').fadeOut('fast');
+    });
+});
+</script>
+
+</body>
+
+</html>
